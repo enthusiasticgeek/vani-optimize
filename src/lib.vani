@@ -5,8 +5,8 @@
 //   abs sqrt exp log pow
 //
 // Depends on vani-matrix (mat_solve) for Newton's method and the quadratic
-// specialty solvers -- see [deps] in vani.toml.
-use "../vendor/matrix/src/lib.vani";
+// specialty solvers -- see [deps] in vani.toml. No `use` statement needed:
+// vanic auto-includes every [deps] entry's source before compiling.
 
 // ── Test objective functions ─────────────────────────────────────────────────
 // Standard benchmark functions from the optimization literature. Useful for
