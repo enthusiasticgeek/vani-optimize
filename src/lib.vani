@@ -487,6 +487,7 @@ fn steepest_descent_quadratic(Q: ref Vec<f64>, b: ref Vec<f64>, x0: ref Vec<f64>
 // Penalized objective value at x for a given penalty weight mu. WCET =
 // 20 + 2 indirect calls (f, g).
 #[bounded_stack(bytes = 104)]
+#[wcet(cycles = 52)]
 fn penalty_value(
     f: fn(ref Vec<f64>, i64) -> f64,
     g: fn(ref Vec<f64>, i64) -> f64,
