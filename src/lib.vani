@@ -336,7 +336,7 @@ fn newton_nd(
             push(mut ref neg_g, 0.0 - g[j]);
             j = j + 1;
         }
-        let step: Vec<f64> = mat_solve(ref h, ref neg_g, n);
+        let step: Vec<f64> = matrix::mat_solve(ref h, ref neg_g, n);
         let k: i64 = 0;
         while k < n {
             set(mut ref x, k, x[k] + step[k]);
@@ -375,7 +375,7 @@ fn newton_nd_fd(
             push(mut ref neg_g, 0.0 - g[j]);
             j = j + 1;
         }
-        let step: Vec<f64> = mat_solve(ref hess, ref neg_g, n);
+        let step: Vec<f64> = matrix::mat_solve(ref hess, ref neg_g, n);
         let k: i64 = 0;
         while k < n {
             set(mut ref x, k, x[k] + step[k]);
@@ -439,7 +439,7 @@ fn quadratic_minimize(Q: ref Vec<f64>, b: ref Vec<f64>, n: i64) -> Vec<f64> {
         push(mut ref neg_b, 0.0 - b[i]);
         i = i + 1;
     }
-    return mat_solve(Q, ref neg_b, n);
+    return matrix::mat_solve(Q, ref neg_b, n);
 }
 
 // Steepest descent specialized to a quadratic objective: gradient g = Qx+b,
