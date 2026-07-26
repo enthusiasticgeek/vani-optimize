@@ -1,0 +1,55 @@
+// Tests for the Closure-accepting gradient-descent variants (v0.1.5).
+// Run with:  vanic test tests/test_closure_variants.vani
+//
+// The whole point of these variants is minimizing an objective
+// parameterized by data the caller owns, without a plain fn(ref Vec<f64>,
+// i64) -> f64 signature having any slot for that data. This test proves
+// exactly that: `target` is captured by reference, not baked into a
+// hand-written top-level function or duplicated as a global.
+
+use "../src/lib.vani";
+
+fn close(a: f64, b: f64) -> bool {
+    return abs(a - b) < 1.0e-4;
+}
+
+fn main() -> i64 {
+    // Minimize f(x) = sum((x_i - target_i)^2), target captured by ref.
+    // Global minimum is x = target, f = 0.
+    let target: Vec<f64> = vec(3.0, 4.0);
+
+    let f: Closure(ref Vec<f64>, i64) -> f64 = fn(x: ref Vec<f64>, n: i64) -> f64 [ref target] {
+        let s: f64 = 0.0;
+        let i: i64 = 0;
+        while i < n {
+            let d: f64 = x[i] - target[i];
+            s = s + d * d;
+            i = i + 1;
+        }
+        return s;
+    };
+    let grad_f: Closure(ref Vec<f64>, i64) -> Vec<f64> = fn(x: ref Vec<f64>, n: i64) -> Vec<f64> [ref target] {
+        let g: Vec<f64> = vec();
+        let i: i64 = 0;
+        while i < n {
+            push(mut ref g, 2.0 * (x[i] - target[i]));
+            i = i + 1;
+        }
+        return g;
+    };
+
+    let x0: Vec<f64> = vec(0.0, 0.0);
+
+    // Fixed-step variant.
+    let xf: Vec<f64> = gradient_descent_fixed_closure(f, grad_f, ref x0, 2, 0.1, 500, 1.0e-10);
+    assert close(xf[0], 3.0);
+    assert close(xf[1], 4.0);
+
+    // Backtracking variant (also exercises armijo_line_search_closure).
+    let xb: Vec<f64> = gradient_descent_backtracking_closure(f, grad_f, ref x0, 2, 500, 1.0e-10);
+    assert close(xb[0], 3.0);
+    assert close(xb[1], 4.0);
+
+    print "closure-variant gradient descent tests passed";
+    return 0;
+}

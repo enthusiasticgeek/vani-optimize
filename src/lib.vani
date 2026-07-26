@@ -304,6 +304,118 @@ fn gradient_descent_backtracking(
     return x;
 }
 
+// ── Closure-accepting variants (v0.1.5, 2026-07-25) ─────────────────────────
+// Ref-capturing closures v3 (see vani-compiler's
+// docs/ref_capturing_closures_design.md and kosh-index/ROADMAP.md's "ML
+// tier"): the three functions above take a plain `fn(ref Vec<f64>, i64) ->
+// ...` function-pointer type, which cannot receive a closure that captures
+// data by reference (e.g. a training-data Vec) -- vāṇी's `Closure` and
+// `fn` types don't implicitly coerce into each other, confirmed by direct
+// test. These `_closure` variants are mechanical copies of the three
+// functions above with `Closure` parameter types instead, added
+// ADDITIVELY -- the original `fn`-typed functions are untouched, so every
+// existing caller (including this package's own tests/examples, which
+// pass plain top-level functions like `sphere_fn`) keeps compiling
+// unchanged. This is why it's a minor version bump, not a breaking major
+// one.
+//
+// Motivating case: a caller wants to minimize an objective parameterized
+// by data it owns (e.g. logistic regression's cross-entropy loss over a
+// training set) without that data being a global or duplicated into every
+// call site -- `fn(ref Vec<f64>, i64) -> f64` has no slot for it, but
+// `fn(x: i64) -> f64 [ref training_data] { ... }` does, once it's passed
+// through a `Closure`-typed parameter instead.
+
+// Closure-accepting `gradient_descent_fixed`. See that function's doc
+// comment for the algorithm; this differs only in `f`/`grad_f`'s type.
+#[bounded_stack(bytes = 312)]
+fn gradient_descent_fixed_closure(
+    f: Closure(ref Vec<f64>, i64) -> f64,
+    grad_f: Closure(ref Vec<f64>, i64) -> Vec<f64>,
+    x0: ref Vec<f64>, n: i64, alpha: f64, max_iter: i64, tol: f64
+) -> Vec<f64> {
+    let x: Vec<f64> = vec();
+    let i0: i64 = 0;
+    while i0 < n {
+        push(mut ref x, x0[i0]);
+        i0 = i0 + 1;
+    }
+    let iter: i64 = 0;
+    while iter < max_iter {
+        let g: Vec<f64> = grad_f(ref x, n);
+        if _vec_norm2(ref g, n) < tol { break; }
+        let i: i64 = 0;
+        while i < n {
+            set(mut ref x, i, x[i] - alpha * g[i]);
+            i = i + 1;
+        }
+        iter = iter + 1;
+    }
+    return x;
+}
+
+// Closure-accepting `armijo_line_search`. See that function's doc comment.
+#[bounded_stack(bytes = 320)]
+fn armijo_line_search_closure(
+    f: Closure(ref Vec<f64>, i64) -> f64,
+    x: ref Vec<f64>, n: i64,
+    direction: ref Vec<f64>, grad: ref Vec<f64>,
+    alpha0: f64, c1: f64, rho: f64, max_ls_iter: i64
+) -> f64 {
+    let fx: f64 = f(x, n);
+    let slope: f64 = _dot_n(grad, direction, n);
+    let alpha: f64 = alpha0;
+    let iter: i64 = 0;
+    while iter < max_ls_iter {
+        let xt: Vec<f64> = vec();
+        let i: i64 = 0;
+        while i < n {
+            push(mut ref xt, x[i] + alpha * direction[i]);
+            i = i + 1;
+        }
+        let ft: f64 = f(ref xt, n);
+        if ft <= fx + c1 * alpha * slope { return alpha; }
+        alpha = alpha * rho;
+        iter = iter + 1;
+    }
+    return alpha;
+}
+
+// Closure-accepting `gradient_descent_backtracking`. See that function's
+// doc comment.
+#[bounded_stack(bytes = 584)]
+fn gradient_descent_backtracking_closure(
+    f: Closure(ref Vec<f64>, i64) -> f64,
+    grad_f: Closure(ref Vec<f64>, i64) -> Vec<f64>,
+    x0: ref Vec<f64>, n: i64, max_iter: i64, tol: f64
+) -> Vec<f64> {
+    let x: Vec<f64> = vec();
+    let i0: i64 = 0;
+    while i0 < n {
+        push(mut ref x, x0[i0]);
+        i0 = i0 + 1;
+    }
+    let iter: i64 = 0;
+    while iter < max_iter {
+        let g: Vec<f64> = grad_f(ref x, n);
+        if _vec_norm2(ref g, n) < tol { break; }
+        let d: Vec<f64> = vec();
+        let j: i64 = 0;
+        while j < n {
+            push(mut ref d, 0.0 - g[j]);
+            j = j + 1;
+        }
+        let alpha: f64 = armijo_line_search_closure(f, ref x, n, ref d, ref g, 1.0, 1.0e-4, 0.5, 50);
+        let k: i64 = 0;
+        while k < n {
+            set(mut ref x, k, x[k] + alpha * d[k]);
+            k = k + 1;
+        }
+        iter = iter + 1;
+    }
+    return x;
+}
+
 // Newton's method in N dimensions, given analytic gradient and Hessian
 // callbacks. Quadratic convergence near the optimum -- validated to converge
 // to machine precision on Rosenbrock in a handful of iterations from a

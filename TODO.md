@@ -74,6 +74,44 @@
 
 ---
 
+## v0.1.5 — Implemented ✓ (2026-07-25)
+
+### Closure-accepting variants (3 functions)
+- [x] `gradient_descent_fixed_closure`, `armijo_line_search_closure`,
+      `gradient_descent_backtracking_closure` — same algorithms as the
+      v0.1.0 originals, but `f`/`grad_f` take `Closure(ref Vec<f64>,
+      i64) -> ...` instead of a plain `fn` pointer, so the objective can
+      capture data by reference (e.g. a training set) instead of needing
+      it as a global. Added additively — the original `fn`-typed
+      functions are untouched, every existing caller keeps compiling
+      unchanged (no implicit coercion exists between `fn(...)->...` and
+      `Closure(...)->...`, confirmed by direct test, so an in-place
+      signature change would have broken every current caller).
+      Motivated by vani-ml's `logreg_fit` needing to pass a closure
+      capturing training data by reference — see vani-compiler's
+      `docs/ref_capturing_closures_design.md`.
+- [x] `tests/test_closure_variants.vani` — minimizes
+      `f(x) = sum((x_i - target_i)^2)` with `target` captured by
+      reference (not hand-coded into a top-level function), via both
+      the fixed-step and backtracking closure variants, verified on
+      both backends.
+- [x] `#[bounded_stack(bytes=N)]` on all 3 new functions, exact
+      `vanic check`-computed values.
+
+**Found and fixed two real vanic compiler bugs along the way** (not this
+package's bugs — filed and fixed in `vani-compiler`, not tracked further
+here): a function merely *taking* a `Closure`-typed parameter failed to
+compile if no matching closure literal existed anywhere in the calling
+program (would have broken every existing consumer of this package the
+moment these functions were added); and the C backend could order a
+closure's struct typedef before a `Vec<T>` type it referenced. Both
+fixed in `vani-compiler` before this version was finalized here.
+
+**Not yet published** — `vanic publish` not run, stopping for an
+explicit go-ahead before touching the Kosh registry.
+
+---
+
 ## Future
 
 No v0.2.0 is currently planned. Candidates if a concrete need shows up:
