@@ -107,16 +107,47 @@ moment these functions were added); and the C backend could order a
 closure's struct typedef before a `Vec<T>` type it referenced. Both
 fixed in `vani-compiler` before this version was finalized here.
 
-**Not yet published** — `vanic publish` not run, stopping for an
-explicit go-ahead before touching the Kosh registry.
+**Published** 2026-07-26 (this note was stale until 2026-07-27 -- v0.1.5
+was already live in kosh-index by the time the Phase I simplex work
+below started).
 
 ---
+
+## v0.1.6 (2026-07-27)
+
+- [x] `simplex_solve_phase1(c, A, b, n_vars, n_constraints)` -- two-phase
+      tableau simplex for LPs that aren't feasible at the origin (any
+      sign of `b`, unlike `simplex_solve`'s `b >= 0` restriction). Every
+      row gets both a slack and an artificial variable (uniform, simpler
+      to get right than a variable-sized artificial block, same
+      "correctness > speed" tradeoff as `vani-bignum`'s long division);
+      rows with `b[i] < 0` are negated first so every RHS is >= 0, which
+      also flips that row's own slack coefficient to -1 -- **the one real
+      bug found and fixed during development**: an early version
+      hardcoded the slack coefficient to +1 regardless of the row's
+      sign, which silently corrupted Phase 2's represented LP for any
+      negated row (Phase 1 still "converged" to a wrong answer instead
+      of erroring, since nothing about the bug was inconsistent enough
+      to trip an internal check) -- caught by hand-verifying the very
+      first test case's expected optimum, not by the type checker.
+      Factored `_simplex_pivot` (shared by both phases) and
+      `_simplex_basic_row` (finds which column is currently basic in a
+      row, used to rebuild Phase 2's objective against whatever Phase 1
+      left behind) as private helpers; `simplex_solve` itself is
+      untouched. No dedicated infeasibility signal (returns an all-zero
+      Vec), same convention as `simplex_solve`'s unbounded-LP case.
+- [x] `tests/test_penalty_simplex.vani` extended: a classic textbook
+      two-phase example (minimize 2x+3y s.t. x+y>=4, x+2y>=6 -- both
+      constraints bind at the optimum (2,2), objective 10, verified by
+      hand against every other vertex of the feasible region) and a
+      genuinely infeasible LP (x+y<=1 AND x+y>=3 simultaneously). Full
+      suite + `vanic audit-safety` re-verified on both backends. No
+      unrelated WCET/stack drift found in this package.
 
 ## Future
 
 No v0.2.0 is currently planned. Candidates if a concrete need shows up:
 constrained optimization beyond the single-inequality penalty method
-(augmented Lagrangian, or a proper active-set/interior-point method), a
-Phase-I simplex variant for LPs that are infeasible at the origin, quasi-Newton
+(augmented Lagrangian, or a proper active-set/interior-point method), quasi-Newton
 methods (BFGS/L-BFGS) to avoid `newton_nd`'s full-Hessian cost, and stochastic
 gradient variants once a use case with noisy gradients appears.

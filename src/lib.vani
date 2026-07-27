@@ -871,3 +871,326 @@ fn simplex_solve(c: ref Vec<f64>, A: ref Vec<f64>, b: ref Vec<f64>, n_vars: i64,
 fn simplex_value(c: ref Vec<f64>, x: ref Vec<f64>, n_vars: i64) -> f64 {
     return _dot_n(c, x, n_vars);
 }
+
+// ── Two-phase simplex (Phase I for infeasible-at-origin LPs) ────────────────
+
+// Shared pivot loop for a maximize-encoded tableau (row 0 holds -c_j
+// reduced against the current basis; rows 1..height are constraints with
+// RHS in the last column). Only columns [0, max_col) are eligible to
+// enter the basis -- callers exclude artificial-variable columns by
+// passing max_col = n_vars + n_constraints, so Phase 2 (and Phase 1
+// itself) never re-selects an artificial to enter. Identical logic to
+// simplex_solve's own inline pivot loop; factored out here so
+// simplex_solve_phase1 can run it twice (once per phase) without
+// duplicating the ~30-line loop body. Returns 0 (unit substitute),
+// matching sparse_coo_push's mut-ref-only-procedure convention.
+// NO #[wcet]: the pivot loop's iteration cap (200) is a hardcoded
+// internal constant, but each iteration still does O(height*width) work
+// -- same "UNBOUNDED to the checker despite a literal cap" situation as
+// simplex_solve's own loop.
+#[bounded_stack(bytes = 272)]
+fn _simplex_pivot(T: mut ref Vec<f64>, width: i64, height: i64, max_col: i64) -> i64 {
+    let max_iter: i64 = 200;
+    let iter: i64 = 0;
+    while iter < max_iter {
+        let q: i64 = 0 - 1;
+        let best: f64 = 0.0 - 1.0e-9;
+        let jj: i64 = 0;
+        while jj < max_col {
+            if T[jj] < best {
+                best = T[jj];
+                q = jj;
+            }
+            jj = jj + 1;
+        }
+        if q < 0 {
+            iter = max_iter;
+        } else {
+            let p: i64 = 0 - 1;
+            let best_ratio: f64 = 0.0;
+            let ii: i64 = 1;
+            while ii < height {
+                let val: f64 = T[ii * width + q];
+                if val > 1.0e-12 {
+                    let ratio: f64 = T[ii * width + (width - 1)] / val;
+                    if p < 0 || ratio < best_ratio {
+                        best_ratio = ratio;
+                        p = ii;
+                    }
+                }
+                ii = ii + 1;
+            }
+            if p < 0 {
+                // Unbounded LP; same "no dedicated signal" convention as
+                // simplex_solve.
+                iter = max_iter;
+            } else {
+                let pivot_val: f64 = T[p * width + q];
+                let jc: i64 = 0;
+                while jc < width {
+                    set(T, p * width + jc, T[p * width + jc] / pivot_val);
+                    jc = jc + 1;
+                }
+                let r: i64 = 0;
+                while r < height {
+                    if r != p {
+                        let factor: f64 = T[r * width + q];
+                        if abs(factor) > 1.0e-15 {
+                            let jc2: i64 = 0;
+                            while jc2 < width {
+                                set(T, r * width + jc2, T[r * width + jc2] - factor * T[p * width + jc2]);
+                                jc2 = jc2 + 1;
+                            }
+                        }
+                    }
+                    r = r + 1;
+                }
+                iter = iter + 1;
+            }
+        }
+    }
+    return 0;
+}
+
+// Row index (1..height-1) where column `col` is the unique basic
+// variable (exactly one row reads 1.0, every other row including any
+// row outside [1,height) not checked -- callers only ever ask about
+// constraint rows), or -1 if `col` isn't currently basic. Same
+// uniqueness check as simplex_solve's own x-value-extraction loop, reused
+// here to rebuild Phase 2's objective row against whatever the Phase 1
+// basis left behind.
+// NO #[wcet]: the while loop runs `height` times, a runtime parameter.
+#[bounded_stack(bytes = 137)]
+fn _simplex_basic_row(T: ref Vec<f64>, width: i64, height: i64, col: i64) -> i64 {
+    let one_row: i64 = 0 - 1;
+    let ones_count: i64 = 0;
+    let is_clean: bool = true;
+    let ri: i64 = 1;
+    while ri < height {
+        let v: f64 = T[ri * width + col];
+        if abs(v - 1.0) < 1.0e-9 {
+            ones_count = ones_count + 1;
+            one_row = ri;
+        } else {
+            if abs(v) > 1.0e-9 { is_clean = false; }
+        }
+        ri = ri + 1;
+    }
+    if ones_count == 1 && is_clean {
+        return one_row;
+    }
+    return 0 - 1;
+}
+
+// Two-phase tableau simplex: maximize c^T x subject to A x <= b, x >= 0,
+// WITHOUT simplex_solve's "b >= 0" restriction -- Phase I finds an
+// initial basic feasible solution first (or determines the LP is
+// infeasible), then Phase II optimizes the real objective from there.
+//
+// Standard two-phase construction: every row gets both a slack variable
+// AND an artificial variable (coefficient +1), after first negating any
+// row with b[i] < 0 so every row's RHS is >= 0 (an algebraically
+// equivalent rewrite of the same constraint -- negating
+// "A_i.x + s_i = b_i" by -1 doesn't change its solution set, it just
+// gives the artificial variable a feasible nonnegative starting value
+// -b[i] on that row). Negating the row also flips s_i's own coefficient
+// to -1 on that row (signs[i] tracks this so the slack column stays
+// consistent with the same physical slack variable pre- and
+// post-negation). Adding an artificial to EVERY row (not just the ones
+// that need it) is uniform and simpler to get right than tracking a
+// variable-sized artificial block, at the cost of n_constraints wasted
+// columns -- the same "correctness > speed, deliberately simpler"
+// tradeoff vani-bignum's long division makes.
+//
+// Phase 1 minimizes sum(artificials) (maximizes -sum(artificials) in
+// this tableau's encoding); its objective row's closed form is
+// row0[x_j] = -sum_i(A_i,j), row0[slack_i] = -signs[i],
+// row0[artificial_i] = 0, row0[RHS] = -sum_i(b_i) -- this is exactly
+// what reducing a fresh (0,...,0,1,...,1,0) objective row against every
+// artificial's own row (each artificial starts basic) works out to,
+// computed directly instead
+// of via a runtime reduction loop. If Phase 1's optimal value isn't ~0,
+// the LP is infeasible -- same "no dedicated signal, just returns a
+// zero vector" convention as simplex_solve's unbounded-LP case.
+//
+// Phase 2 rebuilds row 0 from the real c (0 for slack/artificial
+// columns), then reduces it against whatever Phase 1 left basic in each
+// row via _simplex_basic_row, before running the same pivot loop again
+// restricted to the same n+m columns (artificials can never re-enter).
+//
+// c: length n_vars. A: flat row-major n_constraints x n_vars. b: length
+// n_constraints, ANY sign. Returns the optimal x (length n_vars), or an
+// all-zero Vec if Phase 1 finds the LP infeasible.
+#[bounded_stack(bytes = 1033)]
+fn simplex_solve_phase1(c: ref Vec<f64>, A: ref Vec<f64>, b: ref Vec<f64>, n_vars: i64, n_constraints: i64) -> Vec<f64> {
+    let m: i64 = n_constraints;
+    let n: i64 = n_vars;
+    let width: i64 = n + m + m + 1;
+    let height: i64 = m + 1;
+
+    // Row-major-negated copies: A2/b2 are A/b with every b[i] < 0 row
+    // negated so every b2[i] >= 0. signs[i] records which rows were
+    // negated (-1.0) vs left alone (1.0) -- needed below because negating
+    // "A_i.x + s_i = b_i" by -1 also flips the coefficient of s_i itself
+    // (to -1), so this row's slack column must carry signs[i], not a
+    // blanket +1.
+    let A2: Vec<f64> = vec();
+    let b2: Vec<f64> = vec();
+    let signs: Vec<f64> = vec();
+    let i0: i64 = 0;
+    while i0 < m {
+        let sign: f64 = 1.0;
+        if b[i0] < 0.0 {
+            sign = 0.0 - 1.0;
+        }
+        push(mut ref signs, sign);
+        let j0: i64 = 0;
+        while j0 < n {
+            push(mut ref A2, sign * A[i0 * n + j0]);
+            j0 = j0 + 1;
+        }
+        push(mut ref b2, sign * b[i0]);
+        i0 = i0 + 1;
+    }
+
+    let T: Vec<f64> = vec();
+    let k0: i64 = 0;
+    while k0 < height * width {
+        push(mut ref T, 0.0);
+        k0 = k0 + 1;
+    }
+
+    // Constraint rows: x columns, then this row's own slack (signs[i],
+    // see header comment) and artificial (+1) columns, then RHS.
+    let i: i64 = 0;
+    while i < m {
+        let row: i64 = i + 1;
+        let j: i64 = 0;
+        while j < n {
+            set(mut ref T, row * width + j, A2[i * n + j]);
+            j = j + 1;
+        }
+        set(mut ref T, row * width + (n + i), signs[i]);
+        set(mut ref T, row * width + (n + m + i), 1.0);
+        set(mut ref T, row * width + (width - 1), b2[i]);
+        i = i + 1;
+    }
+
+    // Phase 1 objective row, closed form (see function header comment).
+    let j1: i64 = 0;
+    while j1 < n {
+        let s: f64 = 0.0;
+        let ii: i64 = 0;
+        while ii < m {
+            s = s + A2[ii * n + j1];
+            ii = ii + 1;
+        }
+        set(mut ref T, j1, 0.0 - s);
+        j1 = j1 + 1;
+    }
+    let si: i64 = 0;
+    while si < m {
+        set(mut ref T, n + si, 0.0 - signs[si]);
+        si = si + 1;
+    }
+    let sum_b: f64 = 0.0;
+    let bi: i64 = 0;
+    while bi < m {
+        sum_b = sum_b + b2[bi];
+        bi = bi + 1;
+    }
+    set(mut ref T, width - 1, 0.0 - sum_b);
+
+    let max_col: i64 = n + m;
+    let _r1: i64 = _simplex_pivot(mut ref T, width, height, max_col);
+
+    // Phase 1 optimal value (of maximize -sum(artificials)) lives at
+    // row0's RHS; ~0 means sum(artificials) ~0, i.e. feasible.
+    if abs(T[width - 1]) > 1.0e-6 {
+        let zeros: Vec<f64> = vec();
+        let zi: i64 = 0;
+        while zi < n {
+            push(mut ref zeros, 0.0);
+            zi = zi + 1;
+        }
+        return zeros;
+    }
+
+    // Phase 2: fresh objective row from the real c, reduced against
+    // whatever Phase 1 left basic in each row.
+    let row0: Vec<f64> = vec();
+    let jf: i64 = 0;
+    while jf < width {
+        push(mut ref row0, 0.0);
+        jf = jf + 1;
+    }
+    let jc0: i64 = 0;
+    while jc0 < n {
+        set(mut ref row0, jc0, 0.0 - c[jc0]);
+        jc0 = jc0 + 1;
+    }
+    let rr: i64 = 1;
+    while rr < height {
+        // Find the (unique, if any) column basic in row rr, among the
+        // real decision/slack columns -- artificial columns are ignored
+        // here since Phase 2 never assigns them a real cost.
+        let bc: i64 = 0 - 1;
+        let jb: i64 = 0;
+        while jb < max_col {
+            if abs(T[rr * width + jb] - 1.0) < 1.0e-9 {
+                let br: i64 = _simplex_basic_row(ref T, width, height, jb);
+                if br == rr {
+                    bc = jb;
+                }
+            }
+            jb = jb + 1;
+        }
+        if bc >= 0 {
+            let factor: f64 = row0[bc];
+            if abs(factor) > 1.0e-15 {
+                let jc: i64 = 0;
+                while jc < width {
+                    set(mut ref row0, jc, row0[jc] - factor * T[rr * width + jc]);
+                    jc = jc + 1;
+                }
+            }
+        }
+        rr = rr + 1;
+    }
+    let jw: i64 = 0;
+    while jw < width {
+        set(mut ref T, jw, row0[jw]);
+        jw = jw + 1;
+    }
+
+    let _r2: i64 = _simplex_pivot(mut ref T, width, height, max_col);
+
+    // Extract x values -- identical logic to simplex_solve's own final
+    // loop (a decision column is basic iff exactly one row reads 1 and
+    // every other row, including row 0, reads 0).
+    let x: Vec<f64> = vec();
+    let vj: i64 = 0;
+    while vj < n {
+        let one_row: i64 = 0 - 1;
+        let ones_count: i64 = 0;
+        let is_clean: bool = true;
+        let ri: i64 = 0;
+        while ri < height {
+            let v: f64 = T[ri * width + vj];
+            if abs(v - 1.0) < 1.0e-9 {
+                ones_count = ones_count + 1;
+                one_row = ri;
+            } else {
+                if abs(v) > 1.0e-9 { is_clean = false; }
+            }
+            ri = ri + 1;
+        }
+        if ones_count == 1 && is_clean && one_row > 0 {
+            push(mut ref x, T[one_row * width + (width - 1)]);
+        } else {
+            push(mut ref x, 0.0);
+        }
+        vj = vj + 1;
+    }
+    return x;
+}

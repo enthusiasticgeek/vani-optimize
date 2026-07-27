@@ -66,5 +66,42 @@ fn main() -> i64 {
     assert close(x2[1], 1.0);
     assert close(simplex_value(ref c2, ref x2, 2), 9.0);
 
+    // simplex_solve_phase1 on a classic infeasible-at-origin LP:
+    //   minimize 2x + 3y   s.t.   x + y >= 4,  x + 2y >= 6,  x,y >= 0
+    // encoded as maximize -2x-3y subject to -x-y <= -4, -x-2y <= -6 (both
+    // rows have negative b -- the origin violates both constraints, so
+    // simplex_solve couldn't handle this without Phase I). Both
+    // constraints bind at the optimum (2,2): x+y=4, x+2y=6 exactly,
+    // objective 2*2+3*2=10 (verified by hand: every other vertex of the
+    // feasible region, e.g. (6,0) or (0,4), scores 12).
+    let c3: Vec<f64> = vec(0.0 - 2.0);
+    push(mut ref c3, 0.0 - 3.0);
+    let A3: Vec<f64> = vec(0.0 - 1.0);
+    push(mut ref A3, 0.0 - 1.0);
+    push(mut ref A3, 0.0 - 1.0);
+    push(mut ref A3, 0.0 - 2.0);
+    let b3: Vec<f64> = vec(0.0 - 4.0);
+    push(mut ref b3, 0.0 - 6.0);
+    let x3: Vec<f64> = simplex_solve_phase1(ref c3, ref A3, ref b3, 2, 2);
+    assert close(x3[0], 2.0);
+    assert close(x3[1], 2.0);
+    assert close(simplex_value(ref c3, ref x3, 2), 0.0 - 10.0);
+
+    // simplex_solve_phase1 on a genuinely infeasible LP: x+y <= 1 AND
+    // x+y >= 3 can't both hold for x,y >= 0. No dedicated infeasibility
+    // signal (same convention as simplex_solve's unbounded-LP case) --
+    // returns an all-zero Vec.
+    let c4: Vec<f64> = vec(1.0);
+    push(mut ref c4, 1.0);
+    let A4: Vec<f64> = vec(1.0);
+    push(mut ref A4, 1.0);
+    push(mut ref A4, 0.0 - 1.0);
+    push(mut ref A4, 0.0 - 1.0);
+    let b4: Vec<f64> = vec(1.0);
+    push(mut ref b4, 0.0 - 3.0);
+    let x4: Vec<f64> = simplex_solve_phase1(ref c4, ref A4, ref b4, 2, 2);
+    assert close(x4[0], 0.0);
+    assert close(x4[1], 0.0);
+
     return 0;
 }
