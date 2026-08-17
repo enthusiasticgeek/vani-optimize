@@ -1,6 +1,6 @@
 # vani-optimize
 
-Numerical optimization library for the [vāṇी compiler](https://github.com/enthusiasticgeek/vani-compiler).
+Numerical optimization library for the [vāṇī compiler](https://github.com/enthusiasticgeek/vani-compiler).
 
 Unconstrained and constrained continuous optimization, plus linear programming,
 all built on plain `Vec<f64>` (points/vectors) in flat row-major layout for matrices/
@@ -71,7 +71,7 @@ and gradient functions are passed as function pointers:
 
 ## What this library does NOT provide
 
-These are already vāṇी compiler builtins — call them directly, no import needed:
+These are already vāṇī compiler builtins — call them directly, no import needed:
 
 `abs` `sqrt` `exp` `log` `pow`
 

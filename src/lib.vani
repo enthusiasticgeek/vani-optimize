@@ -1,6 +1,6 @@
 // vani-optimize  v0.1.0 — numerical optimization library
 //
-// IMPORTANT — do NOT reimplement vāṇी compiler builtins.
+// IMPORTANT — do NOT reimplement vāṇī compiler builtins.
 // Already available as builtins (call directly, never redeclare here):
 //   abs sqrt exp log pow
 //
@@ -309,7 +309,7 @@ fn gradient_descent_backtracking(
 // docs/ref_capturing_closures_design.md and kosh-index/ROADMAP.md's "ML
 // tier"): the three functions above take a plain `fn(ref Vec<f64>, i64) ->
 // ...` function-pointer type, which cannot receive a closure that captures
-// data by reference (e.g. a training-data Vec) -- vāṇी's `Closure` and
+// data by reference (e.g. a training-data Vec) -- vāṇī's `Closure` and
 // `fn` types don't implicitly coerce into each other, confirmed by direct
 // test. These `_closure` variants are mechanical copies of the three
 // functions above with `Closure` parameter types instead, added
@@ -642,7 +642,7 @@ fn penalty_grad_fd(
 }
 
 // Backtracking Armijo line search specialized to the penalized objective
-// (inlined rather than reusing armijo_line_search generically, since vāṇी
+// (inlined rather than reusing armijo_line_search generically, since vāṇī
 // has no closures to bake `mu` into a plain function-pointer callback).
 // IMPORTANT: a fixed step size here reliably diverges once mu grows large
 // (the penalized gradient's magnitude scales with mu) -- always use this
