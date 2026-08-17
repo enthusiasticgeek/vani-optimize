@@ -7,6 +7,8 @@ all built on plain `Vec<f64>` (points/vectors) in flat row-major layout for matr
 Hessians, following the convention established by [vani-matrix](https://github.com/enthusiasticgeek/vani-matrix).
 Depends on vani-matrix's `mat_solve` for the Newton-step and quadratic-specialty solvers.
 
+**API reference / tutorial:** <https://enthusiasticgeek.github.io/vani-optimize/>
+
 ## Add to your project
 
 ```toml
