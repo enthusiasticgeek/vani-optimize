@@ -15,6 +15,42 @@ fn constraint_sum_ge_1(x: ref Vec<f64>, n: i64) -> f64 {
 }
 
 fn main() -> i64 {
+    // penalty_value/penalty_grad_fd/penalty_line_search directly -- each
+    // had no call site of its own (only ever exercised transitively
+    // inside penalty_method_minimize's outer/inner loops below).
+    let xv: Vec<f64> = vec(2.0, 2.0); // violates x+y>=1's complement: g(x)=1-2-2=-3<=0, no violation
+    let pv_no_violation: f64 = penalty_value(sphere_fn, constraint_sum_ge_1, ref xv, 2, 10.0);
+    assert close(pv_no_violation, sphere_fn(ref xv, 2)); // g<=0 -> viol=0, no penalty added
+
+    let xv2: Vec<f64> = vec(0.0, 0.0); // g(x) = 1-0-0 = 1 > 0, violates by 1
+    let pv_violation: f64 = penalty_value(sphere_fn, constraint_sum_ge_1, ref xv2, 2, 10.0);
+    // f(0,0)=0, violation=1, penalty = mu*1^2 = 10.
+    assert close(pv_violation, 10.0);
+
+    // penalty_grad_fd at xv2 cross-checked against grad_fd applied to the
+    // same penalized objective built as a plain closure-free finite
+    // difference by hand: d/dx0[f + mu*max(0,g)^2] at (0,0) with
+    // g=1-x0-x1 (dg/dx0=-1): f'=2*x0=0, penalty term derivative =
+    // 2*mu*viol*dviol/dx0 = 2*10*1*(-1) = -20. Total dP/dx0 = -20 (and by
+    // symmetry dP/dx1 = -20 too).
+    let pg: Vec<f64> = penalty_grad_fd(sphere_fn, constraint_sum_ge_1, ref xv2, 2, 10.0, 1.0e-5);
+    assert close(pg[0], 0.0 - 20.0);
+    assert close(pg[1], 0.0 - 20.0);
+
+    // penalty_line_search: from xv2=(0,0), stepping along the negative
+    // penalized gradient must satisfy the Armijo sufficient-decrease
+    // condition on the penalized objective (the same check the function
+    // itself performs internally to accept an alpha).
+    let dir: Vec<f64> = vec(0.0 - pg[0], 0.0 - pg[1]);
+    let alpha: f64 = penalty_line_search(sphere_fn, constraint_sum_ge_1, ref xv2, 2, 10.0, ref dir, ref pg, 1.0, 1.0e-4, 0.5, 50);
+    let p_x0: f64 = penalty_value(sphere_fn, constraint_sum_ge_1, ref xv2, 2, 10.0);
+    let slope: f64 = pg[0] * dir[0] + pg[1] * dir[1];
+    let xt: Vec<f64> = vec(xv2[0] + alpha * dir[0], xv2[1] + alpha * dir[1]);
+    let p_xt: f64 = penalty_value(sphere_fn, constraint_sum_ge_1, ref xt, 2, 10.0);
+    assert p_xt <= p_x0 + 1.0e-4 * alpha * slope;
+    assert alpha > 0.0;
+    assert alpha <= 1.0;
+
     // penalty_method_minimize: minimize x^2+y^2 subject to x+y>=1.
     // Exact solution by Lagrange multipliers: (0.5, 0.5), f = 0.5.
     let x0: Vec<f64> = vec(0.0);

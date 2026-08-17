@@ -45,10 +45,25 @@ fn main() -> i64 {
     assert close(xf[0], 3.0);
     assert close(xf[1], 4.0);
 
-    // Backtracking variant (also exercises armijo_line_search_closure).
+    // Backtracking variant (also exercises armijo_line_search_closure
+    // transitively -- see the direct call right below for a call site of
+    // armijo_line_search_closure on its own).
     let xb: Vec<f64> = gradient_descent_backtracking_closure(f, grad_f, ref x0, 2, 500, 1.0e-10);
     assert close(xb[0], 3.0);
     assert close(xb[1], 4.0);
+
+    // armijo_line_search_closure directly, same Armijo condition check as
+    // the plain-fn variant's direct test in test_gradient_methods.vani.
+    let g_at_x0: Vec<f64> = grad_f(ref x0, 2);
+    let dir: Vec<f64> = vec(0.0 - g_at_x0[0], 0.0 - g_at_x0[1]);
+    let alpha: f64 = armijo_line_search_closure(f, ref x0, 2, ref dir, ref g_at_x0, 1.0, 1.0e-4, 0.5, 50);
+    let f_x0: f64 = f(ref x0, 2);
+    let slope: f64 = g_at_x0[0] * dir[0] + g_at_x0[1] * dir[1];
+    let xt: Vec<f64> = vec(x0[0] + alpha * dir[0], x0[1] + alpha * dir[1]);
+    let f_xt: f64 = f(ref xt, 2);
+    assert f_xt <= f_x0 + 1.0e-4 * alpha * slope;
+    assert alpha > 0.0;
+    assert alpha <= 1.0;
 
     print "closure-variant gradient descent tests passed";
     return 0;

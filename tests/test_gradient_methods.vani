@@ -42,6 +42,30 @@ fn main() -> i64 {
     assert close_fd2(hfd[2], hfd[1]);
     assert close_fd2(hfd[3], 200.0);
 
+    // sphere_grad directly: analytic gradient 2x at (3,4) is (6,8) -- had
+    // no direct call site of its own (only ever passed BY NAME as a
+    // grad_f callback below, never invoked and checked in this file).
+    let sg: Vec<f64> = sphere_grad(ref x1, 2);
+    assert close(sg[0], 6.0);
+    assert close(sg[1], 8.0);
+
+    // armijo_line_search directly on the sphere function: from x=(3,4)
+    // stepping along the steepest-descent direction -grad, the returned
+    // alpha must satisfy the Armijo sufficient-decrease condition (same
+    // check the function itself performs to accept an alpha). Had no
+    // direct call site -- only ever exercised transitively inside
+    // gradient_descent_backtracking below.
+    let g_at_x1: Vec<f64> = sphere_grad(ref x1, 2);
+    let dir: Vec<f64> = vec(0.0 - g_at_x1[0], 0.0 - g_at_x1[1]);
+    let alpha: f64 = armijo_line_search(sphere_fn, ref x1, 2, ref dir, ref g_at_x1, 1.0, 1.0e-4, 0.5, 50);
+    let f_x1: f64 = sphere_fn(ref x1, 2);
+    let slope: f64 = g_at_x1[0] * dir[0] + g_at_x1[1] * dir[1];
+    let xt: Vec<f64> = vec(x1[0] + alpha * dir[0], x1[1] + alpha * dir[1]);
+    let f_xt: f64 = sphere_fn(ref xt, 2);
+    assert f_xt <= f_x1 + 1.0e-4 * alpha * slope;
+    assert alpha > 0.0;
+    assert alpha <= 1.0;
+
     // gradient_descent_fixed on the convex sphere function converges to the origin.
     let x0: Vec<f64> = vec(5.0);
     push(mut ref x0, 0.0 - 3.0);
