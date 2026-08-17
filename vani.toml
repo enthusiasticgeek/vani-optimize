@@ -1,6 +1,6 @@
 [package]
 name    = "optimize"
-version = "0.1.6"
+version = "0.1.7"
 entry   = "src/lib.vani"
 authors = "enthusiasticgeek"
 license = "MIT"
